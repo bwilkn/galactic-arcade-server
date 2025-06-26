@@ -19,6 +19,26 @@ const gameState = {
   arcadeMachines: new Map() // machineId -> { isTransparent: false, forPlayer: null }
 };
 
+// Track used colors to ensure uniqueness
+const usedColors = new Set();
+
+// Function to assign a unique color to a new player
+function assignColor() {
+  for (let i = 1; i <= 16; i++) {
+    const color = i.toString().padStart(2, '0'); // '01', '02', etc.
+    if (!usedColors.has(color)) {
+      usedColors.add(color);
+      return color;
+    }
+  }
+  return '01'; // Fallback if all colors used
+}
+
+// Function to release a color when player disconnects
+function releaseColor(color) {
+  usedColors.delete(color);
+}
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', players: gameState.players.size });
@@ -40,24 +60,34 @@ io.on('connection', (socket) => {
   socket.on('playerJoin', (playerData) => {
     console.log('Player joining:', playerData);
     
-    gameState.players.set(socket.id, {
+    // Assign a unique color to the new player
+    const assignedColor = assignColor();
+    
+    // Create player data with assigned color and default position
+    const playerInfo = {
       id: socket.id,
       name: playerData.name,
-      color: playerData.color,
+      color: assignedColor,
       position: { x: 400, y: 680 }, // Default spawn
       lastUpdate: Date.now()
-    });
+    };
     
-    // Send current game state to new player
+    // Store player in game state
+    gameState.players.set(socket.id, playerInfo);
+    
+    // Send color assignment to the new player
+    socket.emit('playerColorAssigned', { color: assignedColor });
+    
+    // Send current game state to new player (including positions of existing players)
     socket.emit('gameState', {
       players: Array.from(gameState.players.values()),
       doorState: gameState.doorState
     });
     
-    // Notify other players
-    socket.broadcast.emit('playerJoined', gameState.players.get(socket.id));
+    // Notify other players about the new player (with assigned color)
+    socket.broadcast.emit('playerJoined', playerInfo);
     
-    console.log(`Player ${playerData.name} joined. Total players: ${gameState.players.size}`);
+    console.log(`Player ${playerData.name} joined with color ${assignedColor}. Total players: ${gameState.players.size}`);
   });
   
   // Handle player movement
@@ -89,6 +119,8 @@ io.on('connection', (socket) => {
     const player = gameState.players.get(socket.id);
     if (player) {
       console.log(`Player ${player.name} disconnected`);
+      // Release the color for reuse
+      releaseColor(player.color);
     }
     gameState.players.delete(socket.id);
     io.emit('playerLeft', socket.id);
