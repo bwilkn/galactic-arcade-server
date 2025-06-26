@@ -22,6 +22,10 @@ const gameState = {
 // Track used colors to ensure uniqueness
 const usedColors = new Set();
 
+// Position update throttling
+const playerUpdateThrottle = new Map(); // playerId -> last update time
+const UPDATE_THROTTLE_MS = 16; // ~60fps (1000ms / 60fps)
+
 // Function to assign a unique color to a new player
 function assignColor() {
   for (let i = 1; i <= 16; i++) {
@@ -97,13 +101,22 @@ io.on('connection', (socket) => {
     });
   });
   
-  // Handle player movement
+  // Handle player movement with throttling
   socket.on('playerMove', (position) => {
     const player = gameState.players.get(socket.id);
     if (player) {
-      player.position = position;
-      player.lastUpdate = Date.now();
-      socket.broadcast.emit('playerMoved', { id: socket.id, position });
+      const now = Date.now();
+      const lastUpdate = playerUpdateThrottle.get(socket.id) || 0;
+      
+      // Throttle updates to ~60fps
+      if (now - lastUpdate >= UPDATE_THROTTLE_MS) {
+        player.position = position;
+        player.lastUpdate = now;
+        playerUpdateThrottle.set(socket.id, now);
+        
+        // Broadcast to other players
+        socket.broadcast.emit('playerMoved', { id: socket.id, position });
+      }
     }
   });
   
@@ -129,7 +142,12 @@ io.on('connection', (socket) => {
       // Release the color for reuse
       releaseColor(player.color);
     }
+    
+    // Clean up player data
     gameState.players.delete(socket.id);
+    playerUpdateThrottle.delete(socket.id);
+    
+    // Notify other players
     io.emit('playerLeft', socket.id);
     console.log(`Total players: ${gameState.players.size}`);
   });
