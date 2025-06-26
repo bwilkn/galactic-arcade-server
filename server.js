@@ -63,12 +63,12 @@ io.on('connection', (socket) => {
     // Assign a unique color to the new player
     const assignedColor = assignColor();
     
-    // Create player data with assigned color and default position
+    // Create player data with assigned color and default spawn position
     const playerInfo = {
       id: socket.id,
       name: playerData.name,
       color: assignedColor,
-      position: { x: 400, y: 680 }, // Default spawn
+      position: { x: 400, y: 680 }, // Default spawn position
       lastUpdate: Date.now()
     };
     
@@ -78,16 +78,23 @@ io.on('connection', (socket) => {
     // Send color assignment to the new player
     socket.emit('playerColorAssigned', { color: assignedColor });
     
-    // Send current game state to new player (including positions of existing players)
+    // Send current game state to new player (excluding themselves, only other players)
+    const otherPlayers = Array.from(gameState.players.values()).filter(p => p.id !== socket.id);
     socket.emit('gameState', {
-      players: Array.from(gameState.players.values()),
+      players: otherPlayers,
       doorState: gameState.doorState
     });
     
-    // Notify other players about the new player (with assigned color)
+    // Notify other players about the new player (with current spawn position)
     socket.broadcast.emit('playerJoined', playerInfo);
     
-    console.log(`Player ${playerData.name} joined with color ${assignedColor}. Total players: ${gameState.players.size}`);
+    console.log(`Player ${playerData.name} joined with color ${assignedColor} at position (${playerInfo.position.x}, ${playerInfo.position.y}). Total players: ${gameState.players.size}`);
+    console.log(`Sent ${otherPlayers.length} existing players to new player`);
+    
+    // Log existing player positions for debugging
+    otherPlayers.forEach(player => {
+      console.log(`  - Existing player: ${player.name} at (${player.position.x}, ${player.position.y})`);
+    });
   });
   
   // Handle player movement
@@ -131,6 +138,6 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
   console.log(`🚀 Galactic Arcade Server running on port ${PORT}`);
-  console.log(`�� Health check: http://localhost:${PORT}/health`);
+  console.log(`🏥 Health check: http://localhost:${PORT}/health`);
   console.log(`🎮 Game state: http://localhost:${PORT}/game-state`);
 });
